@@ -54,6 +54,21 @@ namespace FileManager
             });
         }
 
+        public void LogsSave()
+        {
+            var jsonObj = JsonConvert.SerializeObject(Logs);
+            File.WriteAllText(@"Logs.json", jsonObj);            
+        }
+
+        public void LogsRead()
+        {
+            var json = File.ReadAllText(@"Logs.json");
+            var logs = JsonConvert.DeserializeObject<List<SendsLog>>(json);
+
+            if(logs != null)
+                Logs = logs;           
+        }
+
         public void ReadingFile(SendsLog log)
         {
             try
@@ -79,9 +94,15 @@ namespace FileManager
                         FileGuid = fileGuid,
                         FileSHA256 = sha
                     };
-                    log.ChanksInfo = new bool[countChunks];
 
-                    SendFileInfo(fileInfo);
+                    if(log.ChanksInfo == null)
+                        log.ChanksInfo = new bool[countChunks];
+
+                    if (!log.SendingStarted)
+                    {
+                        SendFileInfo(fileInfo);
+                        log.SendingStarted = true;
+                    }                   
 
                     var bytes = new byte[size];
 
@@ -109,19 +130,17 @@ namespace FileManager
                         countChunks--;
                         partitionsCount++;
                     }
-                }
+                    log.Send = true;
+                    LogsSave();
+                }               
             }
-            catch (Exception)
-            {
-
-
-            }
-
-
+            catch (Exception) {}
         }
 
         public void start()
         {
+            LogsRead();
+
             while (true)
             {
                 for (int i = 0; i < Logs.Count; i++)
@@ -173,15 +192,18 @@ namespace FileManager
 
                 var jsonObj = JsonConvert.SerializeObject(fileChunk);
                 var body = Encoding.UTF8.GetBytes(jsonObj);
-                log.ChanksInfo[fileChunk.ChunkN] = true;
+                
 
                 channel.BasicPublish(exchange: "",
                                      routingKey: "files_test",
                                      basicProperties: null,
                                      body: body);
+
+                log.ChanksInfo[fileChunk.ChunkN] = true;
+                LogsSave();
             }
 
-            log.Send = true;
+            
         }
     }
 }
