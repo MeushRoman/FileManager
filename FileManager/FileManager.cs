@@ -6,12 +6,15 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FileManager
 {
     public class FileManager
     {
+        public List<SendsLog> Logs { get; set; } = new List<SendsLog>();
+
         public List<FileChunk> fileChunks { get; set; } = new List<FileChunk>();
         public string GetChecksum(string file)
         {
@@ -21,76 +24,118 @@ namespace FileManager
                 byte[] checksum = sha.ComputeHash(stream);
                 return BitConverter.ToString(checksum).Replace("-", String.Empty);
             }
+
         }
-        //public void Demo(string pathToDirectory)
-        //{            
-        //    var filesOld = Directory.GetFiles(pathToDirectory);
 
-        //    var task = Task.Run(() =>
-        //    {
-        //        while (true)
-        //        {
-        //            var filesNew = Directory.GetFiles(pathToDirectory);
-        //            if (filesOld.Length != filesNew.Length)
-        //            {
-        //                Console.WriteLine("Smth happened!");
-        //            }
-        //            Thread.Sleep(TimeSpan.FromSeconds(5));
-        //        }
-        //    });
-        //}        
-
-        public void ReadingFile(string name)
-        {
-            string path = @"C:\test\";
-            int partitionsCount = 0;
-            int size = 1024 * 1024;
-
-            Guid fileGuid = Guid.NewGuid();
-
-            string sha = GetChecksum(path + name);
-
-            using (var fs = new FileStream(path + name, FileMode.Open))
+        public void CheckDirectoryForNewFiles(string pathToDirectory)
+        {           
+            var task = Task.Run(() =>
             {
-                int countChunks = (int)Math.Ceiling((double)fs.Length / size);
-
-                FileInfo fileInfo = new FileInfo()
+                string fName;
+                while (true)
                 {
-                    Name = name,
-                    Size = (int)fs.Length,
-                    CountChunks = countChunks,
-                    FileGuid = fileGuid,
-                    FileSHA256 = sha
-                };
+                    var files = Directory.GetFiles(pathToDirectory);
 
-                SendFileInfo(fileInfo);
-
-                var bytes = new byte[size];
-
-                while (countChunks > 0)
-                {
-                    bytes = (fs.Length - fs.Position >= size) ? new byte[size] : new byte[fs.Length - fs.Position];
-
-                    int position = (int)fs.Position;
-                    fs.Read(bytes, 0, bytes.Length);
-
-                    FileChunk fc = new FileChunk()
+                    for (int i = 0; i < files.Length; i++)
                     {
-                        FileName = name,
-                        FileGuid = fileGuid,
-                        Content = bytes,
-                        ChunkN = partitionsCount,
-                        StartPosition = position
-                    };
+                        fName = Path.GetFileName(files[i]);
+                        var lg = Logs.Find(f => f.fileName == fName);
+                        if (lg == null)
+                        {
+                            var log = new SendsLog()
+                            {
+                                fileName = fName
+                            };
 
-                    fileChunks.Add(fc);
-                    SendFileChunk(fc);
-                    countChunks--;
-                    partitionsCount++;
+                            Logs.Add(log);
+                        }
+                    }
+                }
+            });
+        }
+
+        public void ReadingFile(SendsLog log)
+        {
+            try
+            {
+                string path = @"C:\test\";
+                int partitionsCount = 0;
+                int size = 1024 * 1024;
+
+                Guid fileGuid = Guid.NewGuid();
+
+                string sha = GetChecksum(path + log.fileName);
+
+
+                using (var fs = new FileStream(path + log.fileName, FileMode.Open))
+                {
+                    int countChunks = (int)Math.Ceiling((double)fs.Length / size);
+
+                    FileInfo fileInfo = new FileInfo()
+                    {
+                        Name = log.fileName,
+                        Size = (int)fs.Length,
+                        CountChunks = countChunks,
+                        FileGuid = fileGuid,
+                        FileSHA256 = sha
+                    };
+                    log.ChanksInfo = new bool[countChunks];
+
+                    SendFileInfo(fileInfo);
+
+                    var bytes = new byte[size];
+
+                    while (countChunks > 0)
+                    {
+                        bytes = (fs.Length - fs.Position >= size) ? new byte[size] : new byte[fs.Length - fs.Position];
+
+                        int position = (int)fs.Position;
+                        fs.Read(bytes, 0, bytes.Length);
+
+                        FileChunk fc = new FileChunk()
+                        {
+                            FileName = log.fileName,
+                            FileGuid = fileGuid,
+                            Content = bytes,
+                            ChunkN = partitionsCount,
+                            StartPosition = position
+                        };
+
+                        if (!log.ChanksInfo[partitionsCount])
+                        {
+                            SendFileChunk(fc, log);
+                            log.ChanksInfo[partitionsCount] = true;
+                        }
+                        countChunks--;
+                        partitionsCount++;
+                    }
                 }
             }
+            catch (Exception)
+            {
+
+
+            }
+
+
         }
 
+        public void start()
+        {
+            while (true)
+            {
+                for (int i = 0; i < Logs.Count; i++)
+                {
+                    var log = Logs[i];
+                    if (!log.Send)
+                    {
+                        ReadingFile(log);
+                    }
+                }
+
+                Thread.Sleep(1000);
+            }
+        }
 
         public void SendFileInfo(FileInfo fileInfo)
         {
@@ -114,7 +159,7 @@ namespace FileManager
             }
         }
 
-        public void SendFileChunk(FileChunk fileChunk)
+        public void SendFileChunk(FileChunk fileChunk, SendsLog log)
         {
             var factory = new ConnectionFactory() { HostName = "localhost" }; //, UserName = "step-devs", Password = "step-devs"
             using (var connection = factory.CreateConnection())
@@ -128,12 +173,15 @@ namespace FileManager
 
                 var jsonObj = JsonConvert.SerializeObject(fileChunk);
                 var body = Encoding.UTF8.GetBytes(jsonObj);
+                log.ChanksInfo[fileChunk.ChunkN] = true;
 
                 channel.BasicPublish(exchange: "",
                                      routingKey: "files_test",
                                      basicProperties: null,
                                      body: body);
             }
+
+            log.Send = true;
         }
     }
 }

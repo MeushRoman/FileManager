@@ -19,8 +19,12 @@ namespace FileManager
     {
         static void Main(string[] args)
         {
+
             FileManager fm = new FileManager();
-            fm.ReadingFile("222.mp4");
+            string path = @"C:\test\";
+            fm.CheckDirectoryForNewFiles(path);
+            fm.start();
+            //fm.ReadingFile("222.mp4");
         }
     }
 }
