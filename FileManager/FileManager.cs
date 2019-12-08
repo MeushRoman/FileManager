@@ -62,11 +62,14 @@ namespace FileManager
 
         public void LogsRead()
         {
-            var json = File.ReadAllText(@"Logs.json");
-            var logs = JsonConvert.DeserializeObject<List<SendsLog>>(json);
+            if (File.Exists(@"Logs.json")){
+                var json = File.ReadAllText(@"Logs.json");
+                var logs = JsonConvert.DeserializeObject<List<SendsLog>>(json);
 
-            if(logs != null)
-                Logs = logs;           
+                if (logs != null)
+                    Logs = logs;
+            } 
+            else File.Create(@"Logs.json");
         }
 
         public void ReadingFile(SendsLog log)
