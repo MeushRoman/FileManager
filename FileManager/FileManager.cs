@@ -24,7 +24,6 @@ namespace FileManager
                 byte[] checksum = sha.ComputeHash(stream);
                 return BitConverter.ToString(checksum).Replace("-", String.Empty);
             }
-
         }
 
         public void CheckDirectoryForNewFiles(string pathToDirectory)
@@ -137,7 +136,10 @@ namespace FileManager
                     LogsSave();
                 }               
             }
-            catch (Exception) {}
+            catch (Exception) 
+            {
+                ReadingFile(log);
+            }
         }
 
         public void start()
